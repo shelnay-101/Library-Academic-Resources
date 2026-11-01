@@ -24,6 +24,13 @@ function limited(ip) {
   return list.length > 15;
 }
 
+function withTimeout(promise, ms, label) {
+  let t;
+  const timer = new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error(label + " timed out after " + ms + " ms"), { timeout: true })), ms); });
+  return Promise.race([promise, timer]).finally(() => clearTimeout(t));
+}
+const GEN_MS = Number(process.env.AI_TIMEOUT_MS) || 25000, DB_MS = 10000;
+
 function keywords(q) {
   const words = q.toLowerCase().normalize("NFKC").split(/[^\p{L}\p{N}-]+/u)
     .map(w => w.replace(/^-+|-+$/g, "")).filter(w => w.length >= 3 && w.length <= 30 && !STOP.has(w));
@@ -83,12 +90,12 @@ async function loadContext(supabase, kws, noKeywordHits) {
   return { matches, sample, total: (count && count.count) ?? null, categories: counts, news: (news && news.data) || [] };
 }
 
-async function generate(ai, prompt) {
+async function generate(ai, prompt, plain) {
   const models = [...new Set([process.env.GEMINI_MODEL, "gemini-2.5-flash", "gemini-flash-latest"].filter(Boolean))];
   let lastErr;
   for (const model of models) {
     try {
-      const config = { systemInstruction: SYSTEM, maxOutputTokens: 800, temperature: 0.3 };
+      const config = plain ? { maxOutputTokens: 20 } : { systemInstruction: SYSTEM, maxOutputTokens: 800, temperature: 0.3 };
       if (/2\.5/.test(model)) config.thinkingConfig = { thinkingBudget: 0 };   // otherwise "thinking" can use up the answer budget
       const r = await ai.models.generateContent({ model, config, contents: prompt });
       const text = (r.text || "").trim();
@@ -106,8 +113,25 @@ async function generate(ai, prompt) {
 module.exports = async function handler(req, res) {
   const hasGemini = !!process.env.GEMINI_API_KEY, url = process.env.SUPABASE_URL, key = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
 
-  if (req.method === "GET") {   // quick health check: shows which settings are present (never the values)
-    return res.status(200).json({ ok: hasGemini && !!url && !!key, GEMINI_API_KEY: hasGemini, SUPABASE_URL: !!url, SUPABASE_ANON_KEY: !!key, model: process.env.GEMINI_MODEL || "gemini-2.5-flash" });
+  if (req.method === "GET") {   // health check: shows which settings are present (never the values)
+    const info = { ok: hasGemini && !!url && !!key, GEMINI_API_KEY: hasGemini, SUPABASE_URL: !!url, SUPABASE_ANON_KEY: !!key, model: process.env.GEMINI_MODEL || "gemini-2.5-flash" };
+    const wantsTest = (req.query && req.query.test) || /[?&]test=1/.test(req.url || "");
+    if (!wantsTest || !info.ok) return res.status(200).json(info);
+    // /api/library-ai?test=1 : really tries the database and Gemini once and reports what went wrong
+    const ip0 = String(req.headers["x-forwarded-for"] || "x").split(",")[0].trim();
+    if (limited(ip0)) return res.status(429).json({ error: "Too many tests, wait a minute." });
+    const out = { ...info };
+    try {
+      const { createClient } = require("@supabase/supabase-js");
+      const r = await withTimeout(createClient(url, key, { auth: { persistSession: false } }).from("books").select("id", { count: "exact", head: true }), DB_MS, "Supabase");
+      out.supabase = r.error ? "ERROR: " + r.error.message : "ok, " + r.count + " books";
+    } catch (e) { out.supabase = "ERROR: " + (e.message || e); }
+    try {
+      const { GoogleGenAI } = require("@google/genai");
+      const text = await withTimeout(generate(new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }), "Reply with the single word OK.", true), GEN_MS, "Gemini");
+      out.gemini = "ok: " + text.slice(0, 20);
+    } catch (e) { out.gemini = "ERROR: " + String(e && (e.message || e)).slice(0, 300); }
+    return res.status(200).json(out);
   }
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -131,7 +155,7 @@ module.exports = async function handler(req, res) {
     const supabase = createClient(url, key, { auth: { persistSession: false } });
 
     const kws = keywords(message);
-    const ctx = await loadContext(supabase, kws);
+    const ctx = await withTimeout(loadContext(supabase, kws), DB_MS, "Database");
 
     const prompt = `Visitor question:\n"""${message}"""\n\n` +
       `Library catalogue: ${ctx.total ?? "unknown"} books.\nCategories (name: number of books): ${JSON.stringify(ctx.categories)}\n\n` +
@@ -139,7 +163,7 @@ module.exports = async function handler(req, res) {
         : `No book matched the keywords exactly. A sample of the catalogue (may help with other languages or spelling):\n${JSON.stringify(ctx.sample.map(compact))}\n\n`) +
       `Latest announcements: ${JSON.stringify(ctx.news)}\n\nAnswer the visitor.`;
 
-    const answer = await generate(ai, prompt);
+    const answer = await withTimeout(generate(ai, prompt), GEN_MS, "Gemini");
     return res.status(200).json({
       answer,
       books: ctx.matches.slice(0, 3).map(b => ({ id: b.id, title: b.title, author: b.author, category: b.category, floor: b.floor, shelf: b.shelf, available: b.available_copies > 0 })),
@@ -148,6 +172,7 @@ module.exports = async function handler(req, res) {
   } catch (e) {
     console.error("Library AI error:", e && (e.message || e));
     const msg = String(e && (e.message || e));
+    if (e && e.timeout) return res.status(504).json({ error: "The assistant took too long to answer. Please try again." });
     if (/429|quota|rate|RESOURCE_EXHAUSTED/i.test(msg)) return res.status(503).json({ error: "The assistant is very busy right now. Please try again in a minute." });
     return res.status(500).json({ error: "The library assistant is temporarily unavailable." });
   }
