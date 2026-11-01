@@ -29,6 +29,7 @@ function init(){
   document.addEventListener("click",e=>{if(!host.contains(e.target))set(false);});
   window.matchMedia?.("(min-width:1025px)").addEventListener?.("change",e=>{if(e.matches)set(false);});
  }
+ if(!location.pathname.startsWith("/admin"))import("./library-chat.js").catch(()=>{});   // floating AI assistant
  labelTables();
  let t;new MutationObserver(()=>{clearTimeout(t);t=setTimeout(labelTables,40);}).observe(document.body,{childList:true,subtree:true});
 }

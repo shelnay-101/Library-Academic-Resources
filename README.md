@@ -118,3 +118,16 @@ In **Admin > Manage books** there is a **Preview PDF** column. Each book shows *
 ## 10. Responsive layout
 
 `css/responsive.css` (added automatically by `js/nav.js`, which `js/db.js` loads on every page) adapts the site to phones (320-480px), tablets (481-980px), laptops (981-1200px) and large screens (1201px+). Menus become a three-line hamburger button at 1024px and below, the home page shows 15 compact books (5 per row on desktop, 3 rows), admin books are expandable rows, and tables turn into stacked cards on small screens. The scan page lets visitors pick a category to open it or get its QR code.
+
+## 11. Library AI assistant
+
+A round chat icon appears at the bottom-right of every public page (not in Admin). Clicking it opens a popup where visitors ask about books, categories, shelf locations and how the site works; the minus button minimizes it and the circular-arrow button clears it. Only the latest question and answer are shown, so the popup never grows.
+
+How it works: `js/library-chat.js` (widget, loaded by `js/nav.js`) calls `api/library-ai.js` (Vercel function), which searches your Supabase books and asks Google Gemini to answer from those records only.
+
+Setup (once):
+1. Get a key at https://aistudio.google.com/apikey.
+2. In Vercel > Project Settings > Environment Variables add `GEMINI_API_KEY`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` (optional: `GEMINI_MODEL`). Apply to Production, then **redeploy**.
+3. Open `https://YOUR-SITE/api/library-ai` in a browser. It should show `"ok": true`. If a value is `false`, that variable is missing.
+
+Never put the Gemini key in any file inside the project; keep it only in Vercel.
