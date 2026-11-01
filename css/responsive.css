@@ -98,9 +98,9 @@ th,td{white-space:normal;overflow-wrap:anywhere}
 @media(max-width:1024px){
  .nav-toggle{display:inline-flex}
  /* public header */
- .topbar{height:auto;min-height:68px;padding:8px max(4vw,16px);gap:12px}
+ .topbar{height:auto;min-height:68px;padding:8px max(4vw,16px);gap:12px;flex-direction:row;align-items:center;flex-wrap:nowrap}
  .topbar .brand{flex:1;min-width:0}
- .topbar .brand-text{min-width:0;font-size:clamp(.82rem,2.8vw,1.15rem)}
+ .topbar .brand-text{min-width:0;font-size:clamp(.78rem,2.6vw,1.1rem);line-height:1.15}
  .topbar nav{position:absolute;left:0;right:0;top:100%;display:none;flex-direction:column;align-items:stretch;gap:4px;padding:12px max(4vw,16px) 18px;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 22px 34px rgba(10,26,53,.14)}
  .topbar.open nav{display:flex;animation:rise .25s both}
  .topbar nav a{margin:0;padding:15px 18px;border-radius:12px;font-size:1.02rem;text-align:left}

@@ -17,7 +17,7 @@ if(!name){
  title.textContent="No category selected";count.textContent="";$("#cat-tools").hidden=true;
  grid.innerHTML='<p class="error">This QR code or link has no category. Go back and choose a category.</p>';
 }else{
- title.textContent=name;document.title=`${name} · Library QR Finder`;
+ title.textContent=name;document.title=`${name} · Library & Academic Resources`;
  const {data,error}=await db.from("books").select("*").eq("category",name).order("title");
  if(error){count.textContent="";grid.innerHTML='<p class="error">Could not load books. Please try again.</p>';}
  else if(!data||!data.length){count.textContent="0 books";$("#cat-tools").hidden=true;grid.innerHTML='<p class="muted">No books found in this category.</p>';}
